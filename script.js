@@ -1,5 +1,28 @@
 import { createApp } from './vue.esm-browser.js'
 
+function intersection(setA, setB) {
+    const _intersection = [];
+    for (const elem of setB) {
+        if (setA.find(e2 => e2.pk == elem.pk)) {
+            _intersection.push(elem);
+        }
+    }
+    return _intersection;
+}
+
+function version_to_float(v) {
+    if(isNaN(v)) {
+        return Infinity;
+    }
+    return parseFloat(v);
+}
+
+function max_version(a,b) {
+    a = version_to_float(a)
+    b = version_to_float(b);
+    return Math.max(a,b);
+}
+
 let caniuse_data;
 let mdn_data;
 
@@ -16,8 +39,170 @@ const mdn_caniuse_browser_map = {
   "safari_ios": "ios_saf",
   "samsunginternet_android": "samsung",
 };
+const caniuse_mdn_browser_map = Object.fromEntries(Object.entries(mdn_caniuse_browser_map).map(([a,b]) => [b,a]));
 
 let total_observable = 0;
+
+function supported_usage(versions) {
+    let t = 0;
+    for(let [mdn_agent, caniuse_agent] of Object.entries(mdn_caniuse_browser_map)) {
+        const version = version_to_float(versions[mdn_agent]);
+        for(let [v,usage] of Object.entries(caniuse_data.agents[caniuse_agent].usage_global)) {
+            if(version_to_float(v) >= version) {
+                t += usage;
+            }
+        }
+    }
+    return 100 * t / total_observable;
+}
+
+class FeatureTree {
+    constructor(name) {
+        this.name = name || '';
+        this.subtrees = [];
+        this.features = [];
+    }
+
+    all_features() {
+        let out = this.features.slice();
+        for(let st of this.subtrees) {
+            out = out.concat(st.all_features());
+        }
+        return out;
+    }
+
+    find_feature(path) {
+        const [name] = path;
+        if(path.length == 1) {
+            return this.features.find(f=>f.name==name);
+        } else {
+            const subtree = this.subtrees.find(s=>s.name==name);
+            return subtree && subtree.find_feature(path.slice(1));
+        }
+    }
+
+    serialize() {
+        return {
+            name: this.name,
+            categories: this.subtrees.map(s => s.serialize()).filter(d => d.categories.length || d.features.length),
+            features: this.features.filter(f => f.included).map(f => {return {name: f.name, included: f.included}})
+        };
+    }
+
+    shown_features(search) {
+        return this.features.filter(f => f.matches_query(search));
+    }
+
+    should_open(search) {
+        return (this.shown_features(search).length > 0 || this.subtrees.some(st=>st.should_open(search)));
+    }
+}
+
+function place_mdn_feature(root,path,compat) {
+    const [name] = path;
+    if(path.length == 1) {
+        const feature = new MDNFeature(name, compat);
+        if(feature.supported_usage < 100) {
+            root.features.push(feature);
+        }
+    } else {
+        let subtree = root.subtrees.find(t=>t.name==name);
+        if(!subtree) {
+            subtree = new FeatureTree(name);
+            root.subtrees.push(subtree);
+        }
+        place_mdn_feature(subtree, path.slice(1), compat);
+    }
+}
+
+class Feature {
+    constructor(name, compat) {
+        this.name = name;
+        this.included = false;
+    }
+
+    finish_construction() {
+        this.supported_versions = this.calc_supported_versions();
+        this.supported_usage = this.calc_supported_usage();
+    }
+
+    calc_supported_versions() {
+        let support = {};
+        for(let [agent, support_statements] of Object.entries(this.compat.support)) {
+            const statement = Array.isArray(support_statements) ? support_statements[0] : support_statements;
+            if(statement === 'mirror') {
+                // TODO
+            }
+            const version = statement.version_added;
+            let min_version;
+            if(version === true) {
+                min_version = -Infinity;
+            } else if(typeof version == 'string'){ 
+                min_version = parseFloat(version.replace(/^≤/u,''));
+            } else {
+                min_version = Infinity;
+            }
+
+            support[agent] = min_version;
+        }
+        return support;
+    }
+
+    calc_supported_usage() {
+        return supported_usage(this.supported_versions)
+    }
+
+    matches_query(query) {
+        query = query.toLowerCase().trim();
+        if(!query) {
+            return true;
+        }
+        const body = this.search_body().filter(x=>x).join(' ').toLowerCase();
+        return body.indexOf(query) >= 0;
+    }
+    search_body() {
+        return [this.name, this.description];
+    }
+}
+
+class MDNFeature extends Feature {
+    constructor(name, compat) {
+        super(name);
+        this.compat = compat;
+        this.description = compat.description;
+        this.documentation_url = compat.mdn_url;
+        this.finish_construction();
+    }
+}
+
+class CanIUseFeature extends Feature {
+    constructor(name, data) {
+        super(name);
+        this.data = data;
+        this.description = data.title;
+        this.documentation_url = `https://caniuse.com/${name}`;
+        this.finish_construction();
+    }
+
+    calc_supported_versions() {
+        const support = {}
+        for(let [agent, versions] of Object.entries(this.data.stats)) {
+            const version = Object.entries(versions).filter(([v,s]) => s.startsWith('y')).map(([v,s]) => v)[0];
+
+            let min_version;
+            if(version === true) {
+                min_version = -Infinity;
+            } else if(typeof version == 'string'){ 
+                min_version = parseFloat(version.replace(/^≤/u,''));
+            } else {
+                min_version = Infinity;
+            }
+
+            support[caniuse_mdn_browser_map[agent]] = min_version;
+        }
+        return support;
+    }
+}
 
 async function load_data() {
     const r1 = await fetch('data.caniuse.json');
@@ -33,93 +218,153 @@ async function load_data() {
             total_observable += s;
         }
     }
-    console.log(total_observable);
 
-    window.features = Array.from(find_features(mdn_data)).map(({name, compat}) => new Feature(name, compat));
+    const tree_root = new FeatureTree('');
 
-    return {caniuse_data, mdn_data, features};
+    Array.from(find_features(mdn_data)).forEach(({path, compat}) => {
+        place_mdn_feature(tree_root, path, compat);
+    });
+
+    const caniuse_tree = new FeatureTree('caniuse');
+    Object.entries(caniuse_data.data).forEach(([name, d]) => {
+        caniuse_tree.features.push(new CanIUseFeature(name, d));
+    });
+
+    tree_root.subtrees.push(caniuse_tree);
+
+    const serialized = JSON.parse(localStorage.getItem('can-i-also-use') || {});
+    function restore(tree, data) {
+        for(let std of (data.subtrees || data.categories)) {
+            const subtree = tree.subtrees.find(st=>st.name == std.name);
+            if(subtree) {
+                restore(subtree, std);
+            }
+        }
+        for(let fd of data.features) {
+            const f = tree.features.find(f => f.name == fd.name);
+            if(f && fd.included) {
+                f.included = fd.included;
+            }
+        }
+    }
+    restore(tree_root, serialized);
+
+
+    return {caniuse_data, mdn_data, tree_root};
 }
 
-function* find_features(data, prefix='') {
+function* find_features(data, prefix=[]) {
     for(let [k,d] of Object.entries(data)) {
         if(k.startsWith('__') || k=='browsers') {
             continue;
         }
-        const name = `${prefix} ${k}`;
+        const path = prefix.slice();
+        path.push(k);
         if(d['__compat']) {
-            yield {name: name, compat: d['__compat']};
+            yield {path, compat: d['__compat']};
         } else {
-            yield* find_features(d, name);
+            yield* find_features(d, path);
         }
     }
 }
 
-function supported_usage(versions) {
-    let t = 0;
-    for(let {agent, version} of versions) {
-        t += caniuse_data.agents[mdn_caniuse_browser_map[agent]].usage_global[version] || 0;
-    }
-    return 100 * t / total_observable;
+const FeatureTreeComponent = {
+    props: ['tree', 'search'],
+
+    data() {
+        return {
+            open: false
+        }
+    },
+
+    computed: {
+        shown_features() {
+            const features = this.tree.shown_features(this.search);
+            this.open = this.tree.should_open(this.search);
+            return features;
+        },
+
+        num_hidden_features() {
+            return this.tree.features.length - this.shown_features.length;
+        },
+
+        shown_subtrees() {
+            return this.tree.subtrees.filter(st => st.should_open(this.search));
+        },
+        
+        num_hidden_subtrees() {
+            return this.tree.subtrees.length - this.shown_subtrees.length;
+        },
+
+    },
+
+    methods: {
+        toggle(evt) {
+            this.open = !evt.target.parentElement.open;
+            evt.preventDefault();
+        }
+    },
+
+    template: `
+<details class="sub-tree" :open="open">
+    <summary @click="toggle">{{tree.name}}</summary>
+    <ul>
+        <li v-for="item in shown_subtrees" :key="item.name">
+            <featuretree :tree="item" :search="search"></featuretree>
+        </li>
+        <li class="hidden-subtrees" v-if="num_hidden_subtrees"><small>{{num_hidden_subtrees}} hidden subtrees</small></li>
+    </ul>
+    <ul>
+        <li v-for="feature in shown_features" :key="feature.name">
+            <featureselector :feature="feature"></featureselector>
+        </li>
+        <li class="hidden-features" v-if="num_hidden_features"><small>{{num_hidden_features}} hidden features</small></li>
+    </ul>
+</details>
+    `
 }
 
-class Feature {
-    constructor(name, compat) {
-        this.name = name;
-        this.compat = compat;
-        this.included = false;
-        this.supported_versions = this.calc_supported_versions();
-        this.supported_usage = this.calc_supported_usage();
-    }
+const FeatureSelectorComponent = {
+    props: ['feature'],
 
-    calc_supported_versions() {
-        let all_versions = [];
-        for(let [agent, support_statements] of Object.entries(this.compat.support)) {
-            const agent_data = caniuse_data.agents[mdn_caniuse_browser_map[agent]];
-            if(!agent_data) {
-                continue;
-            }
-
-            const statement = Array.isArray(support_statements) ? support_statements[0] : support_statements;
-            if(statement === 'mirror') {
-                // TODO
-            }
-            const version = statement.version_added;
-            let versions = Object.keys(agent_data.usage_global);
-            if(version === true) {
-            } else if(typeof version == 'string'){ 
-                const min_version = parseFloat(version.replace(/^≤/u,''));
-                versions = versions.filter(v=>parseFloat(v) >= min_version);
-            } else {
-                versions = [];
-            }
-
-            all_versions = all_versions.concat(versions.map(v => {return {pk: `${agent} ${v}`, agent, version: v}}));
-        }
-        return all_versions;
-    }
-
-    calc_supported_usage() {
-        return supported_usage(this.supported_versions)
-    }
-
-    matches_query(query) {
-        const body = [this.name, this.compat.description].filter(x=>x).join(' ').toLowerCase();
-        return body.indexOf(query.toLowerCase().trim()) >= 0;
-    }
+    template: `
+    <div class="feature-selector">
+        <label>
+            <input type="checkbox" v-model="feature.included"> 
+            <span v-if="feature.description" v-html="feature.description"></span>
+            <code v-else>{{feature.name}}</code>
+        </label>
+        ({{feature.supported_usage.toFixed(2)}}%)
+        <mdnlink :feature="feature"></mdnlink>
+    </div>
+    `
 }
 
-function intersection(setA, setB) {
-    const _intersection = [];
-    for (const elem of setB) {
-        if (setA.find(e2 => e2.pk == elem.pk)) {
-            _intersection.push(elem);
+const MDNLinkComponent = {
+    props: ['feature'],
+
+    template: `
+<a class="mdn" v-if="feature.documentation_url" :href="feature.documentation_url" target="mdn-docs" title="MDN documentation on this">?</a>
+    `
+}
+
+const DownloadComponent = {
+    props: ['data','filename'],
+
+    computed: {
+        href() {
+            var blob = new Blob([JSON.stringify(this.data)],{type: 'text/json'});
+            return URL.createObjectURL(blob);
         }
-    }
-    return _intersection;
+    },
+
+    template: `
+    <a :href="href" :download="filename"><slot></slot></a>
+    `
 }
 
 async function go() {
-    const {caniuse_data, mdn_data, features} = await load_data();
+    const {tree_root, caniuse_data, mdn_data} = await load_data();
 
     const app = createApp({
         data() {
@@ -127,36 +372,77 @@ async function go() {
                 search: '',
                 caniuse_data: caniuse_data,
                 mdn_data: mdn_data,
-                features: features,
+                tree: tree_root
+            }
+        },
+
+        watch: {
+            included_features(ov,nv) {
+                const s = this.tree.serialize();
+                localStorage.setItem('can-i-also-use', JSON.stringify(s));
+            }
+        },
+
+        methods: {
+            toggle_feature(f) {
+                f.included = !f.included;
+            },
+
+            clear_search() {
+                this.search = "";
             }
         },
 
         computed: {
-            shown_features() {
-                return this.features.filter(f => {
-                    return f.included || f.matches_query(this.search);
-                })
+            included_features() {
+                const fs = this.tree.all_features().filter(f => {
+                    return f.included;
+                });
+                window.fs = fs;
+                return fs;
             },
 
             supported_versions() {
-                let versions = null;
-                for(let f of this.features.filter(f=>f.included)) {
-                    if(versions === null) {
-                        versions = f.supported_versions;
-                    } else {
-                        versions = intersection(versions, f.supported_versions);
+                let versions = Object.fromEntries(Object.keys(mdn_data.browsers).map(b=>[b,-Infinity]));;
+                for(let f of this.tree.all_features().filter(f=>f.included)) {
+                    for(let [agent,min1] of Object.entries(versions)) {
+                        const min2 = f.supported_versions[agent];
+                        versions[agent] = max_version(min1,min2);
                     }
                 }
-                return versions || [];
+                return versions;
+            },
+
+            supported_versions_summary() {
+                const vs = Object.entries(this.supported_versions).map(([browser, version]) => {
+                    const release = Object.entries(mdn_data.browsers[browser].releases).filter(([v,r]) => v >= version).map(([v,r]) => r)[0];
+                    const blocking_features = this.included_features.filter(f => version_to_float(f.supported_versions[browser]) == version);
+                    return {
+                        browser,
+                        version,
+                        release,
+                        blocking_features,
+                        name: mdn_data.browsers[browser].name
+                    };
+                });
+                window.vs = vs;
+                return vs;
             },
 
             supported_usage() {
                 return supported_usage(this.supported_versions);
-            }
+            },
         }
     });
+    
+    app.component('featuretree', FeatureTreeComponent);
+    app.component('featureselector', FeatureSelectorComponent);
+    app.component('mdnlink', MDNLinkComponent);
+    app.component('download-file', DownloadComponent);
 
     app.mount('#app');
+
+    window.app = app;
 }
 
 go();

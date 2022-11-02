@@ -3,7 +3,6 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="https://glitch.com/favicon.ico" />
 
         <title>Can I also use?</title>
 
@@ -12,15 +11,71 @@
         <script src="/script.js" type="module"></script>
     </head>
     <body>
-        <div id="app">
-            <p>The selected features are supported in {{supported_usage.toFixed(2)}}% of observed browsers.</p>
+        <main id="app">
+            <section id="status">
+                <h1>Can I also use?</h1>
+                <p>The selected features are supported in {{supported_usage.toFixed(2)}}% of observed browsers.</p>
+                <download-file :data="tree.serialize()" filename="can-i-also-use-settings.json">Download these settings</download-file>
+                <a href="help.html">How to use</a>
+            </section>
+            <section id="browser-support">
+                <table id="browser-support-table">
+                    <thead>
+                        <tr>
+                            <th>Browser</th>
+                            <th>Minimum version</th>
+                            <th>Release date</th>
+                            <th>Features requiring this version</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="d in supported_versions_summary" :key="d.name" :class="{'not-supported': d.version==Infinity}">
+                            <td>{{d.name}}</td>
+                            <td class="version">
+                                <span v-if="d.version==Infinity">Not supported</span>
+                                <span v-if="d.version==-Infinity">All versions</span>
+                                <span v-if="isFinite(d.version)">Version <strong>{{d.version}}</strong> or later</span>
+                            </td>
+                            <td class="release-date">
+                                <span v-if="d.release">{{d.release.release_date}}</span>
+                            </td>
+                            <td class="blocking-features">
+                                <ul>
+                                    <li v-for="f in d.blocking_features" :key="f.name">
+                                        <label>
+                                            <input v-model="f.included" type="checkbox">
+                                            <span v-if="f.description" class="description" v-html="f.description"></span>
+                                            <code v-else>{{f.name}}</code>
+                                        </label>
+                                        <mdnlink :feature="f"></mdnlink>
+                                    </li>
+                                </ul>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
 
-            <input type="text" v-model="search">
-            <ul v-for="item in shown_features">
-                <li>
-                    <label><input type="checkbox" v-model="item.included"> <strong v-if="item.included">!</strong>{{item.name}} - {{item.compat.description}} - ({{item.supported_usage.toFixed(2)}}%)</label>
-                </li>
-            </ul>
-        </div>
+            <section id="feature-tree">
+                <nav id="search-bar">
+                    <label for="search">Search for a feature:</label>
+                    <input type="text" id="search" v-model="search">
+                    <button type="button" @click="clear_search">Clear search</button>
+                </nav>
+
+                <ul>
+                    <li v-for="subtree in tree.subtrees" :key="subtree.name"><featuretree :tree="subtree" :search="search"></featuretree></li>
+                </ul>
+            </section>
+            
+            <section id="included-features">
+                <h2>Included features</h2>
+                <ul>
+                    <li v-for="f in included_features" :key="f.name">
+                        <featureselector :feature="f"></featureselector>
+                    </li>
+                </ul>
+            </section>
+        </main>
     </body>
 </html>
