@@ -17,6 +17,10 @@ body {
   margin: 0;
 }
 
+body:not(.loaded) #app, body.loaded #loading {
+    display: none;
+}
+
 #app {
   padding: 0.5em;
   display: grid;

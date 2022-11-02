@@ -398,6 +398,8 @@ const DownloadComponent = {
 async function go() {
     const {tree_root, caniuse_data, mdn_data} = await load_data();
 
+    document.body.classList.add('loaded');
+
     const app = createApp({
         data() {
             return {
