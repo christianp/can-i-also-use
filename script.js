@@ -242,15 +242,15 @@ async function load_data() {
 
     tree_root.subtrees.push(caniuse_tree);
 
-    const serialized = JSON.parse(localStorage.getItem('can-i-also-use') || {});
+    const serialized = JSON.parse(localStorage.getItem('can-i-also-use') || '{}');
     function restore(tree, data) {
-        for(let std of (data.subtrees || data.categories)) {
+        for(let std of (data.subtrees || data.categories || [])) {
             const subtree = tree.subtrees.find(st=>st.name == std.name);
             if(subtree) {
                 restore(subtree, std);
             }
         }
-        for(let fd of data.features) {
+        for(let fd of data.features || []) {
             const f = tree.features.find(f => f.name == fd.name);
             if(f && fd.included) {
                 f.included = fd.included;
