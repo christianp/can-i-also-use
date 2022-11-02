@@ -116,7 +116,7 @@ ul {
 }
 
 .blocking-features > ul {
-  max-height: 10em;
+  height: 10em;
   overflow-y: auto;
   margin: 0;
 }

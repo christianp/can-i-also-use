@@ -71,6 +71,15 @@ class FeatureTree {
         return out;
     }
 
+    get_subtree(name) {
+        let subtree = this.subtrees.find(t=>t.name==name);
+        if(!subtree) {
+            subtree = new FeatureTree(name);
+            this.subtrees.push(subtree);
+        }
+        return subtree;
+    }
+
     find_feature(path) {
         const [name] = path;
         if(path.length == 1) {
@@ -94,24 +103,23 @@ class FeatureTree {
     }
 
     should_open(search) {
-        return (this.shown_features(search).length > 0 || this.subtrees.some(st=>st.should_open(search)));
+        return search && (this.shown_features(search).length > 0 || this.subtrees.some(st=>st.should_open(search)));
     }
 }
 
-function place_mdn_feature(root,path,compat) {
-    const [name] = path;
-    if(path.length == 1) {
-        const feature = new MDNFeature(name, compat);
+function place_mdn_feature(root,path,compat, group_parent, i=0) {
+    const name = path[i];
+    if(i==path.length-1) {
+        if(group_parent) {
+            root = root.get_subtree(name);
+        }
+        const feature = new MDNFeature(name, compat, path);
         if(feature.supported_usage < 100) {
             root.features.push(feature);
         }
-    } else {
-        let subtree = root.subtrees.find(t=>t.name==name);
-        if(!subtree) {
-            subtree = new FeatureTree(name);
-            root.subtrees.push(subtree);
-        }
-        place_mdn_feature(subtree, path.slice(1), compat);
+    } else if(i<path.length) {
+        const subtree = root.get_subtree(name);
+        place_mdn_feature(subtree, path, compat, group_parent, i+1);
     }
 }
 
@@ -166,9 +174,11 @@ class Feature {
 }
 
 class MDNFeature extends Feature {
-    constructor(name, compat) {
+    constructor(name, compat, path) {
         super(name);
         this.compat = compat;
+        this.path = path;
+        this.key = path.join('.');
         this.description = compat.description;
         this.documentation_url = compat.mdn_url;
         this.finish_construction();
@@ -221,8 +231,8 @@ async function load_data() {
 
     const tree_root = new FeatureTree('');
 
-    Array.from(find_features(mdn_data)).forEach(({path, compat}) => {
-        place_mdn_feature(tree_root, path, compat);
+    Array.from(find_features(mdn_data)).forEach(({path, compat, group_parent}) => {
+        place_mdn_feature(tree_root, path, compat, group_parent);
     });
 
     const caniuse_tree = new FeatureTree('caniuse');
@@ -253,7 +263,7 @@ async function load_data() {
     return {caniuse_data, mdn_data, tree_root};
 }
 
-function* find_features(data, prefix=[]) {
+function* find_features(data, prefix=[], add_to_path=true) {
     for(let [k,d] of Object.entries(data)) {
         if(k.startsWith('__') || k=='browsers') {
             continue;
@@ -261,7 +271,8 @@ function* find_features(data, prefix=[]) {
         const path = prefix.slice();
         path.push(k);
         if(d['__compat']) {
-            yield {path, compat: d['__compat']};
+            yield {path: path, compat: d['__compat'], group_parent: add_to_path};
+            yield* find_features(d, path, false);
         } else {
             yield* find_features(d, path);
         }
@@ -273,14 +284,26 @@ const FeatureTreeComponent = {
 
     data() {
         return {
-            open: false
+            open: false,
+            show_all_features: false,
+            show_all_subtrees: false
+        }
+    },
+
+    watch: {
+        search() {
+            this.show_all_features = false;
+            this.show_all_subtrees = false;
         }
     },
 
     computed: {
         shown_features() {
+            this.open = !!this.tree.should_open(this.search);
+            if(this.show_all_features) {
+                return this.tree.features;
+            }
             const features = this.tree.shown_features(this.search);
-            this.open = this.tree.should_open(this.search);
             return features;
         },
 
@@ -289,7 +312,10 @@ const FeatureTreeComponent = {
         },
 
         shown_subtrees() {
-            return this.tree.subtrees.filter(st => st.should_open(this.search));
+            if(this.show_all_subtrees) {
+                return this.tree.subtrees;
+            }
+            return this.tree.subtrees.filter(st => !this.search || st.should_open(this.search));
         },
         
         num_hidden_subtrees() {
@@ -302,6 +328,12 @@ const FeatureTreeComponent = {
         toggle(evt) {
             this.open = !evt.target.parentElement.open;
             evt.preventDefault();
+        },
+        show_hidden_features() {
+            this.show_all_features = true;
+        },
+        show_hidden_subtrees() {
+            this.show_all_subtrees = true;
         }
     },
 
@@ -312,13 +344,13 @@ const FeatureTreeComponent = {
         <li v-for="item in shown_subtrees" :key="item.name">
             <featuretree :tree="item" :search="search"></featuretree>
         </li>
-        <li class="hidden-subtrees" v-if="num_hidden_subtrees"><small>{{num_hidden_subtrees}} hidden subtrees</small></li>
+        <li class="hidden-subtrees" v-if="num_hidden_subtrees" @click="show_hidden_subtrees" role="button"><small>{{num_hidden_subtrees}} hidden subcategories</small></li>
     </ul>
     <ul>
-        <li v-for="feature in shown_features" :key="feature.name">
+        <li v-for="feature in shown_features" :key="feature.key" :data-key="feature.key">
             <featureselector :feature="feature"></featureselector>
         </li>
-        <li class="hidden-features" v-if="num_hidden_features"><small>{{num_hidden_features}} hidden features</small></li>
+        <li class="hidden-features" v-if="num_hidden_features" @click="show_hidden_features" role="button"><small>{{num_hidden_features}} hidden features</small></li>
     </ul>
 </details>
     `
@@ -417,11 +449,14 @@ async function go() {
                 const vs = Object.entries(this.supported_versions).map(([browser, version]) => {
                     const release = Object.entries(mdn_data.browsers[browser].releases).filter(([v,r]) => v >= version).map(([v,r]) => r)[0];
                     const blocking_features = this.included_features.filter(f => version_to_float(f.supported_versions[browser]) == version);
+                    const usage_data = caniuse_data.agents[mdn_caniuse_browser_map[browser]]?.usage_global;
+                    const unsupported_usage = usage_data ? Object.entries(usage_data).filter(([v,u]) => version_to_float(v) < version).map(([v,u]) => u).reduce((a,b) => a+b, 0) : 0;
                     return {
                         browser,
                         version,
                         release,
                         blocking_features,
+                        unsupported_usage,
                         name: mdn_data.browsers[browser].name
                     };
                 });

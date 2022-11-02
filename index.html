@@ -32,9 +32,14 @@
                         <tr v-for="d in supported_versions_summary" :key="d.name" :class="{'not-supported': d.version==Infinity}">
                             <td>{{d.name}}</td>
                             <td class="version">
-                                <span v-if="d.version==Infinity">Not supported</span>
-                                <span v-if="d.version==-Infinity">All versions</span>
-                                <span v-if="isFinite(d.version)">Version <strong>{{d.version}}</strong> or later</span>
+                                <p>
+                                    <span v-if="d.version==Infinity">Not supported</span>
+                                    <span v-if="d.version==-Infinity">All versions</span>
+                                    <span v-if="isFinite(d.version)">Version <strong>{{d.version}}</strong> or later</span>
+                                </p>
+                                <p>
+                                    <small>Excluding {{d.unsupported_usage.toFixed(2)}}% of all browsers</small>
+                                </p>
                             </td>
                             <td class="release-date">
                                 <span v-if="d.release">{{d.release.release_date}}</span>
