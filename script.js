@@ -403,6 +403,7 @@ async function go() {
     const app = createApp({
         data() {
             return {
+                staged_search: '',
                 search: '',
                 caniuse_data: caniuse_data,
                 mdn_data: mdn_data,
@@ -424,6 +425,10 @@ async function go() {
 
             clear_search() {
                 this.search = "";
+            },
+
+            do_search(e) {
+                this.search = this.staged_search;
             }
         },
 

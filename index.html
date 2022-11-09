@@ -67,8 +67,11 @@
             <section id="feature-tree">
                 <nav id="search-bar">
                     <label for="search">Search for a feature:</label>
-                    <input type="text" id="search" v-model="search">
-                    <button type="button" @click="clear_search">Clear search</button>
+                    <form @submit.prevent="do_search">
+                        <input type="text" v-model="staged_search">
+                        <button type="submit">Search</button>
+                        <button type="button" @click="clear_search">Clear search</button>
+                    </form>
                 </nav>
 
                 <ul>
