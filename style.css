@@ -57,6 +57,11 @@ ul {
   justify-items: center;
 }
 
+#file {
+    display: grid;
+    grid-gap: 1em;
+}
+
 #browser-support {
   grid-area: browser-support;
 }

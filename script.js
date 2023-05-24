@@ -214,6 +214,21 @@ class CanIUseFeature extends Feature {
     }
 }
 
+function restore(tree, data) {
+    for(let std of (data.subtrees || data.categories || [])) {
+        const subtree = tree.subtrees.find(st => st.name == std.name);
+        if(subtree) {
+            restore(subtree, std);
+        }
+    }
+    for(let fd of data.features || []) {
+        const f = tree.features.find(f => f.name == fd.name);
+        if(f && fd.included) {
+            f.included = fd.included;
+        }
+    }
+}
+
 async function load_data() {
     const r1 = await fetch('data.caniuse.json');
     caniuse_data = await r1.json();
@@ -243,20 +258,6 @@ async function load_data() {
     tree_root.subtrees.push(caniuse_tree);
 
     const serialized = JSON.parse(localStorage.getItem('can-i-also-use') || '{}');
-    function restore(tree, data) {
-        for(let std of (data.subtrees || data.categories || [])) {
-            const subtree = tree.subtrees.find(st=>st.name == std.name);
-            if(subtree) {
-                restore(subtree, std);
-            }
-        }
-        for(let fd of data.features || []) {
-            const f = tree.features.find(f => f.name == fd.name);
-            if(f && fd.included) {
-                f.included = fd.included;
-            }
-        }
-    }
     restore(tree_root, serialized);
 
 
@@ -429,6 +430,16 @@ async function go() {
 
             do_search(e) {
                 this.search = this.staged_search;
+            },
+
+            async upload_settings(e) {
+                const [file] = e.target.files;
+                if(!file) {
+                    return;
+                }
+                const text = await file.text();
+                const data = JSON.parse(text);
+                restore(this.tree, data);
             }
         },
 

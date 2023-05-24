@@ -18,7 +18,10 @@
             <section id="status">
                 <h1>Can I also use?</h1>
                 <p>The selected features are supported in {{supported_usage.toFixed(2)}}% of observed browsers.</p>
-                <download-file :data="tree.serialize()" filename="can-i-also-use-settings.json">Download these settings</download-file>
+                <div id="file">
+                    <download-file :data="tree.serialize()" filename="can-i-also-use-settings.json">Download these settings</download-file>
+                    <label>Load a settings file: <input type="file" @change="upload_settings" id="upload-settings"></label>
+                </div>
                 <a href="help.html">How to use</a>
             </section>
             <section id="browser-support">
