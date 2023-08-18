@@ -257,7 +257,16 @@ async function load_data() {
 
     tree_root.subtrees.push(caniuse_tree);
 
-    const serialized = JSON.parse(localStorage.getItem('can-i-also-use') || '{}');
+    const search_params = new URLSearchParams(window.location.search);
+    const settings_url = search_params.get('settings');
+    let serialized;
+    if(settings_url) {
+        serialized = await (await fetch(settings_url)).json();
+    }
+
+    if(!serialized) {
+        serialized = JSON.parse(localStorage.getItem('can-i-also-use') || '{}');
+    }
     restore(tree_root, serialized);
 
 
