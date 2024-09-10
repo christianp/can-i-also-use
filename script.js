@@ -1,4 +1,5 @@
 import { createApp } from './vue.esm-browser.js'
+import LZString from './lz_string.mjs';
 
 function intersection(setA, setB) {
     const _intersection = [];
@@ -229,13 +230,19 @@ function restore(tree, data) {
     }
 }
 
+async function decompress(response) {
+    const compressed = await response.text();
+    const decompressed = LZString.decompressFromBase64(compressed);
+    return JSON.parse(decompressed);
+}
+
 async function load_data() {
     const r1 = await fetch('data.caniuse.json');
-    caniuse_data = await r1.json();
+    caniuse_data = await decompress(r1);
     window.caniuse_data = caniuse_data;
 
     const r2 = await fetch('data.mdn.json');
-    mdn_data = await r2.json();
+    mdn_data = await decompress(r2);
     window.mdn_data = mdn_data;
 
     for(let agent of Object.values(mdn_caniuse_browser_map)) {
