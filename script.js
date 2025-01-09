@@ -237,6 +237,8 @@ async function decompress(response) {
 }
 
 async function load_data() {
+    const last_updated = new Date(await (await fetch('last-updated.txt')).text());
+
     const r1 = await fetch('data.caniuse.json');
     caniuse_data = await decompress(r1);
     window.caniuse_data = caniuse_data;
@@ -277,7 +279,7 @@ async function load_data() {
     restore(tree_root, serialized);
 
 
-    return {caniuse_data, mdn_data, tree_root};
+    return {last_updated, caniuse_data, mdn_data, tree: tree_root};
 }
 
 function* find_features(data, prefix=[], add_to_path=true) {
@@ -413,19 +415,19 @@ const DownloadComponent = {
 }
 
 async function go() {
-    const {tree_root, caniuse_data, mdn_data} = await load_data();
+    const init_data = Object.assign(
+        {
+            staged_search: '',
+            search: '',
+        }, 
+        await load_data()
+    );
 
     document.body.classList.add('loaded');
 
     const app = createApp({
         data() {
-            return {
-                staged_search: '',
-                search: '',
-                caniuse_data: caniuse_data,
-                mdn_data: mdn_data,
-                tree: tree_root
-            }
+            return init_data;
         },
 
         watch: {

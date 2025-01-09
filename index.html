@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" >
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -17,11 +17,21 @@
         <main id="app">
             <section id="status">
                 <h1>Can I also use?</h1>
-                <p>The selected features are supported in {{supported_usage.toFixed(2)}}% of observed browsers.</p>
+
+                <div>
+                    <p>
+                        The selected features are supported in {{supported_usage.toFixed(2)}}% of observed browsers.
+                    </p>
+                    <p>
+                        Compatibility data was last updated <time :datetime="last_updated.toISOString()">{{last_updated.toLocaleDateString()}}</time>.
+                    </p>
+                </div>
+
                 <div id="file">
                     <download-file :data="tree.serialize()" filename="can-i-also-use-settings.json">Download these settings</download-file>
                     <label>Load a settings file: <input type="file" @change="upload_settings" id="upload-settings"></label>
                 </div>
+
                 <a href="help.html">How to use</a>
             </section>
             <section id="browser-support">
