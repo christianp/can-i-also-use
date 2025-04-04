@@ -138,7 +138,7 @@ class Feature {
     calc_supported_versions() {
         let support = {};
         for(let [agent, support_statements] of Object.entries(this.compat.support)) {
-            const statement = Array.isArray(support_statements) ? support_statements[0] : support_statements;
+            const statement = Array.isArray(support_statements) ? support_statements.toReversed()[0] : support_statements;
             if(statement === 'mirror') {
                 // TODO
             }
@@ -237,7 +237,7 @@ async function decompress(response) {
 }
 
 async function load_data() {
-    const last_updated = new Date(await (await fetch('last-updated.txt')).text());
+    const last_updated = new Date((await (await fetch('last-updated.txt')).text()).trim());
 
     const r1 = await fetch('data.caniuse.json');
     caniuse_data = await decompress(r1);
@@ -511,9 +511,7 @@ async function go() {
     app.component('mdnlink', MDNLinkComponent);
     app.component('download-file', DownloadComponent);
 
-    app.mount('#app');
-
-    window.app = app;
+    window.app = app.mount('#app');
 }
 
 go();
