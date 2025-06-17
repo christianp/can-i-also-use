@@ -28,7 +28,7 @@
                 </div>
 
                 <div id="file">
-                    <download-file :data="tree.serialize()" filename="can-i-also-use-settings.json">Download these settings</download-file>
+                    <download-file :data="serialized_tree" filename="can-i-also-use-settings.json">Download these settings</download-file>
                     <label>Load a settings file: <input type="file" @change="upload_settings" id="upload-settings"></label>
                 </div>
 

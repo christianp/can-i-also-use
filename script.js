@@ -1,15 +1,35 @@
 import { createApp } from './vue.esm-browser.js'
 import LZString from './lz_string.mjs';
 
-function intersection(setA, setB) {
-    const _intersection = [];
-    for (const elem of setB) {
-        if (setA.find(e2 => e2.pk == elem.pk)) {
-            _intersection.push(elem);
+class ISODateTimeElement extends HTMLElement {
+    static observedAttributes = ['datetime'];
+
+    constructor() {
+        super();
+        this.attachShadow({mode:'open'});
+        this.time = this.ownerDocument.createElement('time');
+        this.shadowRoot.append(this.time);
+    }
+
+    set_datetime() {
+        const t = new Date(this.getAttribute('datetime'));
+        if(!t) {
+            this.time.removeAttribute('datetime');
+            this.time.textContent = '';
+            return;
+        }
+        this.time.setAttribute('datetime', t.toISOString());
+        this.time.textContent = t.toLocaleDateString();
+
+    }
+
+    attributeChangedCallback(name) {
+        if(name == 'datetime') {
+            this.set_datetime();
         }
     }
-    return _intersection;
 }
+customElements.define('iso-time', ISODateTimeElement);
 
 function version_to_float(v) {
     if(isNaN(v)) {
@@ -64,12 +84,11 @@ class FeatureTree {
         this.features = [];
     }
 
-    all_features() {
-        let out = this.features.slice();
+    *all_features() {
+        yield* this.features;
         for(let st of this.subtrees) {
-            out = out.concat(st.all_features());
+            yield* st.all_features();
         }
-        return out;
     }
 
     get_subtree(name) {
@@ -252,6 +271,7 @@ async function load_data() {
             total_observable += s;
         }
     }
+    window.total_observable = total_observable;
 
     const tree_root = new FeatureTree('');
 
@@ -298,6 +318,43 @@ function* find_features(data, prefix=[], add_to_path=true) {
     }
 }
 
+class FeatureTreeElement extends HTMLElement {
+    constructor() {
+        super();
+        this.attachShadow({mode: 'open'});
+    }
+
+    set tree(tree) {
+        this.shadowRoot.innerHTML = `
+        <details class="sub-tree" open="${this.open}">
+            <summary>${tree.name}</summary>
+            <ul class="subtrees">
+                <li v-for="item in shown_subtrees" :key="item.name">
+                </li>
+                <li class="hidden-subtrees" v-if="num_hidden_subtrees" @click="show_hidden_subtrees" role="button"><small>{{num_hidden_subtrees}} hidden subcategories</small></li>
+            </ul>
+            <ul>
+                <li v-for="feature in shown_features" :key="feature.key" :data-key="feature.key">
+                    <featureselector :feature="feature"></featureselector>
+                </li>
+                <li class="hidden-features" v-if="num_hidden_features" @click="show_hidden_features" role="button"><small>{{num_hidden_features}} hidden features</small></li>
+            </ul>
+        </details>
+        `;
+        this.shadowRoot.querySelector('summary').addEventListener('click', () => {this.toggle()});
+
+        const subtrees_ul = this.shadowRoot.querySelector('.subtrees');
+        for(let item of tree.subtrees) {
+            const li = this.ownerDocument.createElement('li');
+            li.setAttribute('key',item.name);
+            li.innerHTML = `<feature-tree asearch="search"></feature-tree>`
+        }
+    }
+
+    connectedCallback() {
+    }
+}
+
 const FeatureTreeComponent = {
     props: ['tree', 'search'],
 
@@ -317,8 +374,11 @@ const FeatureTreeComponent = {
     },
 
     computed: {
+        should_open() {
+            return !!this.tree.should_open(this.search);
+        },
+
         shown_features() {
-            this.open = !!this.tree.should_open(this.search);
             if(this.show_all_features) {
                 return this.tree.features;
             }
@@ -345,8 +405,7 @@ const FeatureTreeComponent = {
 
     methods: {
         toggle(evt) {
-            this.open = !evt.target.parentElement.open;
-            evt.preventDefault();
+            this.open = evt.srcElement.open;
         },
         show_hidden_features() {
             this.show_all_features = true;
@@ -357,8 +416,9 @@ const FeatureTreeComponent = {
     },
 
     template: `
-<details class="sub-tree" :open="open">
-    <summary @click="toggle">{{tree.name}}</summary>
+<details class="sub-tree" :open="should_open" @toggle="toggle">
+    <summary>{{tree.name}}</summary>
+    <template v-if="open || should_open">
     <ul>
         <li v-for="item in shown_subtrees" :key="item.name">
             <featuretree :tree="item" :search="search"></featuretree>
@@ -371,6 +431,7 @@ const FeatureTreeComponent = {
         </li>
         <li class="hidden-features" v-if="num_hidden_features" @click="show_hidden_features" role="button"><small>{{num_hidden_features}} hidden features</small></li>
     </ul>
+    </template>
 </details>
     `
 }
@@ -419,6 +480,7 @@ async function go() {
         {
             staged_search: '',
             search: '',
+            serialized_tree: '',
         }, 
         await load_data()
     );
@@ -434,6 +496,7 @@ async function go() {
             included_features(ov,nv) {
                 const s = this.tree.serialize();
                 localStorage.setItem('can-i-also-use', JSON.stringify(s));
+                this.serialized_tree = s;
             }
         },
 
@@ -463,9 +526,9 @@ async function go() {
 
         computed: {
             included_features() {
-                const fs = this.tree.all_features().filter(f => {
+                const fs = Array.from(this.tree.all_features().filter(f => {
                     return f.included;
-                });
+                }));
                 window.fs = fs;
                 return fs;
             },
@@ -484,7 +547,7 @@ async function go() {
             supported_versions_summary() {
                 const vs = Object.entries(this.supported_versions).map(([browser, version]) => {
                     const release = Object.entries(mdn_data.browsers[browser].releases).filter(([v,r]) => v >= version).map(([v,r]) => r)[0];
-                    const blocking_features = this.included_features.filter(f => version_to_float(f.supported_versions[browser]) == version);
+                    const blocking_features = Array.from(this.included_features.filter(f => version_to_float(f.supported_versions[browser]) == version));
                     const usage_data = caniuse_data.agents[mdn_caniuse_browser_map[browser]]?.usage_global;
                     const unsupported_usage = usage_data ? Object.entries(usage_data).filter(([v,u]) => version_to_float(v) < version).map(([v,u]) => u).reduce((a,b) => a+b, 0) : 0;
                     return {
